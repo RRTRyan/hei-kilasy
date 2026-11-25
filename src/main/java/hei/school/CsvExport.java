@@ -40,10 +40,11 @@ public class CsvExport {
             if (row.get("raw_points") != null) {
                 BigDecimal raw = (BigDecimal) row.get("raw_points");
                 BigDecimal max = (BigDecimal) row.get("max_points");
-                LocalDate deadline = ((Date) row.get("deadline")).toLocalDate();
+                Date deadlineValue = (Date) row.get("deadline");
+                LocalDate deadline = deadlineValue == null ? null : deadlineValue.toLocalDate();
                 LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
                 BigDecimal penalty = BigDecimal.ZERO;
-                if (submittedAt.toLocalDate().isAfter(deadline)) {
+                if (deadline != null && Boolean.TRUE.equals(row.get("late"))) {
                     long lateMillis = Duration.between(deadline.plusDays(1).atStartOfDay(), submittedAt).toMillis();
                     long days = Math.max(1, (lateMillis + 86_399_999L) / 86_400_000L);
                     penalty = BigDecimal.valueOf(Math.min(days * 10L, 50L)).divide(BigDecimal.valueOf(100));
@@ -59,7 +60,7 @@ public class CsvExport {
                     .append(row.get("email")).append(';')
                     .append(row.get("cohort")).append(';')
                     .append(row.get("title")).append(';')
-                    .append(row.get("deadline")).append(';')
+                    .append(row.get("deadline") == null ? "" : row.get("deadline")).append(';')
                     .append(row.get("submitted_at")).append(';')
                     .append(Boolean.TRUE.equals(row.get("late")) ? "oui" : "non").append(';')
                     .append(note).append('\n');

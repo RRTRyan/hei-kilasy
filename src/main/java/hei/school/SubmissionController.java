@@ -2,6 +2,7 @@ package hei.school;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -57,15 +58,30 @@ public class SubmissionController {
         if (students.isEmpty()) {
             return ResponseEntity.status(404).body(Map.of("error", "Étudiant introuvable"));
         }
+
+        LocalDateTime now = LocalDateTime.now();
+        Integer timerMinutes = (Integer) exercises.get(0).get("timer_minutes");
+        if (timerMinutes != null) {
+            List<Map<String, Object>> starts = jdbcTemplate.queryForList(
+                    "SELECT started_at FROM exercise_start WHERE exercise_id = ? AND student_id = ?", id, studentId);
+            if (starts.isEmpty()) {
+                return ResponseEntity.status(422).body(Map.of("error", "Minuteur non démarré"));
+            }
+            LocalDateTime startedAt = ((Timestamp) starts.get(0).get("started_at")).toLocalDateTime();
+            if (now.isAfter(startedAt.plusMinutes(timerMinutes))) {
+                return ResponseEntity.status(422).body(Map.of("error", "Le minuteur est écoulé"));
+            }
+        }
+
         Integer already = jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM submission WHERE exercise_id = ? AND student_id = ?", Integer.class, id, studentId);
         if (already != null && already > 0) {
             return ResponseEntity.status(409).body(Map.of("error", "Cet étudiant a déjà soumis cet exercice"));
         }
 
-        LocalDate deadline = ((java.sql.Date) exercises.get(0).get("deadline")).toLocalDate();
-        LocalDateTime now = LocalDateTime.now();
-        boolean late = now.toLocalDate().isAfter(deadline);
+        Date deadlineValue = (Date) exercises.get(0).get("deadline");
+        LocalDate deadline = deadlineValue == null ? null : deadlineValue.toLocalDate();
+        boolean late = deadline != null && now.toLocalDate().isAfter(deadline);
 
         jdbcTemplate.update(
                 "INSERT INTO submission (exercise_id, student_id, content, repo_url, submitted_at) VALUES (?, ?, ?, ?, ?)",
@@ -89,8 +105,10 @@ public class SubmissionController {
             return ResponseEntity.status(404).body(Map.of("error", "Soumission introuvable"));
         }
         Map<String, Object> row = rows.get(0);
-        LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
+        Date deadlineValue = (Date) row.get("deadline");
+        LocalDate deadline = deadlineValue == null ? null : deadlineValue.toLocalDate();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
+        boolean late = deadline != null && submittedAt.toLocalDate().isAfter(deadline);
 
         Map<String, Object> result = new HashMap<>();
         result.put("id", row.get("id"));
@@ -99,12 +117,12 @@ public class SubmissionController {
         result.put("content", row.get("content"));
         result.put("repoUrl", row.get("repo_url"));
         result.put("submittedAt", submittedAt);
-        result.put("late", submittedAt.toLocalDate().isAfter(deadline));
+        result.put("late", late);
         if (row.get("raw_points") != null) {
             BigDecimal raw = (BigDecimal) row.get("raw_points");
             BigDecimal max = (BigDecimal) row.get("max_points");
             BigDecimal penalty = BigDecimal.ZERO;
-            if (submittedAt.toLocalDate().isAfter(deadline)) {
+            if (late) {
                 long lateMillis = Duration.between(deadline.plusDays(1).atStartOfDay(), submittedAt).toMillis();
                 long days = Math.max(1, (lateMillis + 86_399_999L) / 86_400_000L);
                 penalty = BigDecimal.valueOf(Math.min(days * 10L, 50L)).divide(BigDecimal.valueOf(100));
@@ -147,9 +165,10 @@ public class SubmissionController {
         BigDecimal storedRaw = jdbcTemplate.queryForObject(
                 "SELECT raw_points FROM submission WHERE id = ?", BigDecimal.class, id);
 
-        LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
+        Date deadlineValue = (Date) row.get("deadline");
+        LocalDate deadline = deadlineValue == null ? null : deadlineValue.toLocalDate();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
-        boolean late = submittedAt.toLocalDate().isAfter(deadline);
+        boolean late = deadline != null && submittedAt.toLocalDate().isAfter(deadline);
 
         // grade out of 20
         BigDecimal penalty = BigDecimal.ZERO;

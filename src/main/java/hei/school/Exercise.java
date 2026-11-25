@@ -10,6 +10,7 @@ public class Exercise {
     private String description;
     private double maxPoints;
     private LocalDate deadline;
+    private Integer timerMinutes;
 
     public Long getId() {
         return id;
@@ -57,5 +58,13 @@ public class Exercise {
 
     public void setDeadline(LocalDate deadline) {
         this.deadline = deadline;
+    }
+
+    public Integer getTimerMinutes() {
+        return timerMinutes;
+    }
+
+    public void setTimerMinutes(Integer timerMinutes) {
+        this.timerMinutes = timerMinutes;
     }
 }
