@@ -1,7 +1,9 @@
 package hei.school;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -96,10 +98,20 @@ public class SubmissionController {
         result.put("submittedAt", submittedAt);
         result.put("late", submittedAt.toLocalDate().isAfter(deadline));
         if (row.get("raw_points") != null) {
-            double raw = ((BigDecimal) row.get("raw_points")).doubleValue();
-            double max = ((BigDecimal) row.get("max_points")).doubleValue();
+            BigDecimal raw = (BigDecimal) row.get("raw_points");
+            BigDecimal max = (BigDecimal) row.get("max_points");
+            BigDecimal penalty = BigDecimal.ZERO;
+            if (submittedAt.toLocalDate().isAfter(deadline)) {
+                long lateMillis = Duration.between(deadline.plusDays(1).atStartOfDay(), submittedAt).toMillis();
+                long days = Math.max(1, (lateMillis + 86_399_999L) / 86_400_000L);
+                penalty = BigDecimal.valueOf(Math.min(days * 10L, 50L)).divide(BigDecimal.valueOf(100));
+            }
+            BigDecimal grade = raw.multiply(BigDecimal.valueOf(20))
+                    .multiply(BigDecimal.ONE.subtract(penalty))
+                    .divide(max, 1, RoundingMode.HALF_UP)
+                    .max(BigDecimal.ZERO);
             result.put("rawPoints", raw);
-            result.put("grade", Math.round(raw / max * 20 * 10) / 10.0);
+            result.put("grade", grade);
             result.put("feedback", row.get("feedback"));
         }
         return ResponseEntity.ok(result);
@@ -122,20 +134,31 @@ public class SubmissionController {
             return ResponseEntity.status(404).body(Map.of("error", "Soumission introuvable"));
         }
         Map<String, Object> row = rows.get(0);
-        double max = ((BigDecimal) row.get("max_points")).doubleValue();
-        if (points < 0 || points > max) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Les points doivent être entre 0 et " + max));
+        BigDecimal max = (BigDecimal) row.get("max_points");
+        if (points < 0 || points > max.doubleValue()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Les points doivent être entre 0 et " + max.doubleValue()));
         }
 
         jdbcTemplate.update("UPDATE submission SET raw_points = ?, feedback = ?, graded_at = now() WHERE id = ?",
                 points, feedback, id);
-
-        // grade out of 20
-        double grade = Math.round(points / max * 20 * 10) / 10.0;
+        BigDecimal storedRaw = jdbcTemplate.queryForObject(
+                "SELECT raw_points FROM submission WHERE id = ?", BigDecimal.class, id);
 
         LocalDate deadline = ((java.sql.Date) row.get("deadline")).toLocalDate();
         LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
         boolean late = submittedAt.toLocalDate().isAfter(deadline);
+
+        // grade out of 20
+        BigDecimal penalty = BigDecimal.ZERO;
+        if (late) {
+            long lateMillis = Duration.between(deadline.plusDays(1).atStartOfDay(), submittedAt).toMillis();
+            long days = Math.max(1, (lateMillis + 86_399_999L) / 86_400_000L);
+            penalty = BigDecimal.valueOf(Math.min(days * 10L, 50L)).divide(BigDecimal.valueOf(100));
+        }
+        BigDecimal grade = storedRaw.multiply(BigDecimal.valueOf(20))
+                .multiply(BigDecimal.ONE.subtract(penalty))
+                .divide(max, 1, RoundingMode.HALF_UP)
+                .max(BigDecimal.ZERO);
 
         // notify the student by email
         String fullName = (String) row.get("full_name");
@@ -157,7 +180,7 @@ public class SubmissionController {
 
         Map<String, Object> result = new HashMap<>();
         result.put("id", id);
-        result.put("rawPoints", points);
+        result.put("rawPoints", storedRaw);
         result.put("maxPoints", max);
         result.put("grade", grade);
         result.put("late", late);

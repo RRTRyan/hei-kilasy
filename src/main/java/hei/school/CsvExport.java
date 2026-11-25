@@ -1,6 +1,12 @@
 package hei.school;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.sql.Date;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -32,10 +38,21 @@ public class CsvExport {
         for (Map<String, Object> row : rows) {
             String note = "";
             if (row.get("raw_points") != null) {
-                double n = ((BigDecimal) row.get("raw_points")).doubleValue()
-                        / ((BigDecimal) row.get("max_points")).doubleValue() * 20;
-                n = Math.floor(n * 10) / 10;
-                note = String.valueOf(n).replace('.', ',');
+                BigDecimal raw = (BigDecimal) row.get("raw_points");
+                BigDecimal max = (BigDecimal) row.get("max_points");
+                LocalDate deadline = ((Date) row.get("deadline")).toLocalDate();
+                LocalDateTime submittedAt = ((Timestamp) row.get("submitted_at")).toLocalDateTime();
+                BigDecimal penalty = BigDecimal.ZERO;
+                if (submittedAt.toLocalDate().isAfter(deadline)) {
+                    long lateMillis = Duration.between(deadline.plusDays(1).atStartOfDay(), submittedAt).toMillis();
+                    long days = Math.max(1, (lateMillis + 86_399_999L) / 86_400_000L);
+                    penalty = BigDecimal.valueOf(Math.min(days * 10L, 50L)).divide(BigDecimal.valueOf(100));
+                }
+                BigDecimal n = raw.multiply(BigDecimal.valueOf(20))
+                        .multiply(BigDecimal.ONE.subtract(penalty))
+                        .divide(max, 1, RoundingMode.HALF_UP)
+                        .max(BigDecimal.ZERO);
+                note = n.toPlainString().replace('.', ',');
             }
             csv.append(row.get("reference")).append(';')
                     .append(row.get("full_name")).append(';')

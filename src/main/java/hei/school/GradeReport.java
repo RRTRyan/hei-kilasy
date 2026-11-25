@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Date;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -63,7 +64,16 @@ public class GradeReport {
                 } else {
                     BigDecimal raw = (BigDecimal) row.get("raw_points");
                     BigDecimal max = (BigDecimal) row.get("max_points");
-                    BigDecimal grade = raw.multiply(new BigDecimal("20")).divide(max, 1, RoundingMode.HALF_UP);
+                    BigDecimal penalty = BigDecimal.ZERO;
+                    if (submittedAt.toLocalDate().isAfter(deadline)) {
+                        long lateMillis = Duration.between(deadline.plusDays(1).atStartOfDay(), submittedAt).toMillis();
+                        long days = Math.max(1, (lateMillis + 86_399_999L) / 86_400_000L);
+                        penalty = BigDecimal.valueOf(Math.min(days * 10L, 50L)).divide(BigDecimal.valueOf(100));
+                    }
+                    BigDecimal grade = raw.multiply(BigDecimal.valueOf(20))
+                            .multiply(BigDecimal.ONE.subtract(penalty))
+                            .divide(max, 1, RoundingMode.HALF_UP)
+                            .max(BigDecimal.ZERO);
                     line.put("status", "CORRIGÉ");
                     line.put("grade", grade);
                     line.put("feedback", row.get("feedback"));
