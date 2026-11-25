@@ -31,6 +31,9 @@ public class SubmissionController {
     @Autowired
     private JavaMailSender mailSender;
 
+    @Autowired
+    private SmsSender smsSender;
+
     @PostMapping("/exercises/{id}/submissions")
     public ResponseEntity<?> submit(@PathVariable long id, @RequestBody Map<String, Object> body) {
         if (body.get("studentId") == null) {
@@ -160,10 +163,22 @@ public class SubmissionController {
                 .divide(max, 1, RoundingMode.HALF_UP)
                 .max(BigDecimal.ZERO);
 
+        String title = (String) row.get("title");
+
+        // notify the student by SMS
+        try {
+            String phone = (String) row.get("phone");
+            if (phone != null && !phone.isBlank()) {
+                smsSender.send(phone,
+                        "[SMS]  " + phone + " : Votre note pour « " + title + " » est disponible : " + grade + "/20.");
+            }
+        } catch (Exception ex) {
+            System.out.println("SMS non envoyé pour la soumission " + id + " : " + ex.getMessage());
+        }
+
         // notify the student by email
         String fullName = (String) row.get("full_name");
         String firstName = fullName.split(" ")[0];
-        String title = (String) row.get("title");
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom("notes@kilasy.test");
         message.setTo((String) row.get("email"));
